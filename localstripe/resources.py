@@ -2303,6 +2303,71 @@ class Payout(StripeObject):
 extra_apis.append(('POST', '/v1/payouts/{id}/cancel', Payout._api_cancel))
 
 
+class Price(StripeObject):
+    object = 'price'
+    _id_prefix = 'price_'
+
+    def __init__(self, id=None, currency=None, product=None, unit_amount=None,
+                 active=True, metadata=None, nickname=None, recurring=None,
+                 transform_quantity=None,
+                 **kwargs):
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        active = try_convert_to_bool(active)
+        unit_amount = try_convert_to_int(unit_amount)
+        try:
+            assert id is None or _type(id) is str and id
+            assert _type(currency) is str and currency
+            assert _type(product) is str and product
+            assert _type(unit_amount) is int
+            assert _type(active) is bool
+            if metadata is not None:
+                assert _type(metadata) is dict
+            if nickname is not None:
+                assert _type(nickname) is str
+            if recurring is not None:
+                assert _type(recurring) is dict
+            if transform_quantity is not None:
+                assert _type(transform_quantity) is dict
+                assert 'divide_by' in transform_quantity
+                transform_quantity['divide_by'] = try_convert_to_int(transform_quantity['divide_by'])
+                assert _type(transform_quantity['divide_by']) is int
+                assert transform_quantity.get('round') in ['up', 'down']
+
+        except AssertionError:
+            raise UserError(400, 'Bad request')
+
+        # All exceptions must be raised before this point.
+        super().__init__(id)
+
+        self.currency = currency
+        self.product = product
+        self.unit_amount = unit_amount
+        self.active = active
+        self.metadata = metadata or {}
+        self.nickname = nickname
+        self.recurring = recurring
+        self.transform_quantity = transform_quantity
+
+        schedule_webhook(Event('price.created', self))
+
+    @classmethod
+    def _api_list_all(cls, url, product=None, limit=None, starting_after=None):
+        try:
+            if product is not None:
+                assert type(product) is str and product.startswith(Product._id_prefix)
+        except AssertionError:
+            raise UserError(400, 'Bad request')
+
+        li = super(Price, cls)._api_list_all(url, limit=limit,
+                                             starting_after=starting_after)
+        if product is not None:
+            Product._api_retrieve(product)  # to return 404 if not existant
+            li._list = [i for i in li._list if i.product == product]
+        return li
+
+
 class Product(StripeObject):
     object = 'product'
     _id_prefix = 'prod_'
