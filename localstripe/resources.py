@@ -660,8 +660,9 @@ extra_apis.append((
 
 class Coupon(StripeObject):
     object = 'coupon'
+    _id_prefix = 'co_'
 
-    def __init__(self, id=None, duration=None, amount_off=None,
+    def __init__(self, id=None, name=None, duration=None, amount_off=None,
                  percent_off=None, currency=None, metadata=None,
                  duration_in_months=None, **kwargs):
         if kwargs:
@@ -671,7 +672,10 @@ class Coupon(StripeObject):
         percent_off = try_convert_to_float(percent_off)
         duration_in_months = try_convert_to_int(duration_in_months)
         try:
-            assert type(id) is str and id
+            if id is not None:
+                assert type(id) is str
+            if name is not None:
+                assert type(name) is str
             assert (amount_off is None) != (percent_off is None)
             if amount_off is not None:
                 assert type(amount_off) is int and amount_off >= 0
@@ -690,6 +694,7 @@ class Coupon(StripeObject):
         # All exceptions must be raised before this point.
         super().__init__(id)
 
+        self.name = name
         self.amount_off = amount_off
         self.percent_off = percent_off
         self.metadata = metadata or {}
