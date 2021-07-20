@@ -713,7 +713,7 @@ class Customer(StripeObject):
 
     def __init__(self, name=None, description=None, email=None,
                  phone=None, address=None,
-                 invoice_settings=None, business_vat_id=None,
+                 balance=0, invoice_settings=None, business_vat_id=None,
                  preferred_locales=None, tax_id_data=None,
                  metadata=None, payment_method=None, **kwargs):
         if kwargs:
@@ -739,6 +739,7 @@ class Customer(StripeObject):
             assert type(invoice_settings) is dict
             if 'default_payment_method' not in invoice_settings:
                 invoice_settings['default_payment_method'] = None
+            assert type(balance) is int
             if invoice_settings['default_payment_method'] is not None:
                 assert type(invoice_settings['default_payment_method']) is str
                 assert (invoice_settings['default_payment_method']
@@ -772,6 +773,7 @@ class Customer(StripeObject):
         self.email = email
         self.phone = phone
         self.address = address
+        self.balance = balance
         self.invoice_settings = invoice_settings
         self.business_vat_id = business_vat_id
         self.preferred_locales = preferred_locales
