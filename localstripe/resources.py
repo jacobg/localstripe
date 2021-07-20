@@ -3253,3 +3253,58 @@ class Token(StripeObject):
 
         self.type = 'card'
         self.card = card_obj
+
+
+class Search:
+
+    def __init__(self, resource_type, search_result_items):
+        self.resource_type = resource_type
+        self.search_result_items = search_result_items
+
+    # Search API: https://stripe.com/docs/search-api
+    @classmethod
+    def _run_search(cls, resource_type, query=None, **kwargs):
+        # https://stripe.com/docs/search-api/api-details#supported-resources-and-fields
+        SUPPORTED_RESOURCE_TYPES = [Charge, PaymentIntent, Customer]
+        resource_map = {r.object: r for r in SUPPORTED_RESOURCE_TYPES}
+        if resource_type not in resource_map:
+            raise UserError(400, 'Search does not support this resource type')
+
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+        if not query:
+            raise UserError(400, 'query is required')
+
+
+        # TODO: Support searching last4, exp_month, exp_year
+        if not query.startswith('metadata'):
+            raise UserError(400, 'Search field is not supported')
+
+        # TODO: Support more advanced query language:
+        # TODO: https://stripe.com/docs/search-api#query-structure-and-terminology
+        match = re.match(r'metadata\["(\w+)"\]:"(\w+)"', query)
+        if not match:
+            raise UserError(400, f'Unsupported query syntax: {query}')
+
+        search_field = match.group(1)
+        search_value = match.group(2)
+
+        # TODO: Support paging.
+        resource = resource_map[resource_type]
+        matching_items = [
+            value for key, value in store.items()
+            if key.startswith(resource.object + ':')
+            and value.metadata.get(search_field) == search_value
+        ]
+
+        return cls(resource_type, matching_items)
+
+    def _export(self, expand=None):
+        return {
+            "object": "search_result",
+            "has_more": False,
+            "data": [i._export() for i in self.search_result_items],
+            "url": f"/v1/search/{self.resource_type}s",
+        }
+
+extra_apis.append(('GET', '/v1/search/{resource_type}s', Search._run_search))

@@ -256,12 +256,7 @@ def api_extra(func, url):
     async def f(request):
         data = await get_post_data(request) or {}
         data.update(unflatten_data(request.query) or {})
-        if 'id' in request.match_info:
-            data['id'] = request.match_info['id']
-        if 'source_id' in request.match_info:
-            data['source_id'] = request.match_info['source_id']
-        if 'subscription_id' in request.match_info:
-            data['subscription_id'] = request.match_info['subscription_id']
+        data.update(request.match_info)
         expand = data.pop('expand', None)
         return json_response(func(**data)._export(expand=expand))
     return f
