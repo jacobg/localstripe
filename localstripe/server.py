@@ -25,7 +25,7 @@ import socket
 from aiohttp import web
 
 from .resources import BalanceTransaction, Charge, Coupon, Customer, Event, \
-    Invoice, InvoiceItem, PaymentIntent, PaymentMethod, Payout, Plan, Price, \
+    Invoice, InvoiceItem, PaymentIntent, PaymentMethod, Payout, Price, \
     Product, Refund, SetupIntent, Source, Subscription, SubscriptionItem, \
     TaxRate, Token, extra_apis, store
 from .errors import UserError
@@ -78,7 +78,7 @@ async def get_post_data(request, remove_auth=True):
 
 
 # Try to decode values like
-#    curl -d card[cvc]=123 -d subscription_items[0][plan]=pro-yearly
+#    curl -d card[cvc]=123 -d subscription_items[0][price]=pro-yearly
 def unflatten_data(multidict):
     # Transform `{'attributes[]': 'size', 'attributes[]': 'gender'}` into
     # `{'attributes': ['size', 'gender']}`
@@ -111,8 +111,8 @@ def unflatten_data(multidict):
 
     data = make_tree(data)
 
-    # Transform `{'items': {'0': {'plan': 'pro-yearly'}}}` into
-    # `{'items': [{'plan': 'pro-yearly'}]}`
+    # Transform `{'items': {'0': {'price': 'pro-yearly'}}}` into
+    # `{'items': [{'price': 'pro-yearly'}]}`
     def transform_lists(data):
         if (len(data) > 0 and
                 all([re.match(r'^[0-9]+$', k) for k in data.keys()])):
@@ -269,7 +269,7 @@ for method, url, func in extra_apis:
 
 
 for cls in (BalanceTransaction, Charge, Coupon, Customer, Event, Invoice,
-            InvoiceItem, PaymentIntent, PaymentMethod, Payout, Plan, Price,
+            InvoiceItem, PaymentIntent, PaymentMethod, Payout, Price,
             Product, Refund, SetupIntent, Source, Subscription,
             SubscriptionItem, TaxRate, Token):
     for method, url, func in (
