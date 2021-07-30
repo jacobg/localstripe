@@ -619,6 +619,16 @@ class Charge(StripeObject):
     def refunded(self):
         return self.amount <= self.amount_refunded
 
+    @property
+    def payment_method_details(self):
+        if not self.payment_method:
+            return None
+        pm = PaymentMethod._api_retrieve(self.payment_method)
+        data = {}
+        if pm.type == 'card':
+            data['card'] = pm.card
+        return data
+
     @classmethod
     def _api_list_all(cls, url, customer=None, created=None, limit=10,
                       starting_after=None):
@@ -1162,7 +1172,7 @@ class Invoice(StripeObject):
 
     @property
     def total(self):
-        return self.subtotal + self.tax
+        return int(self.subtotal + self.tax)
 
     @property
     def amount_due(self):
@@ -1249,6 +1259,7 @@ class Invoice(StripeObject):
                           subscription_items=None,
                           subscription_prorate=None,
                           subscription_proration_date=None,
+                          subscription_proration_behavior=None,
                           subscription_tax_percent=None,  # deprecated
                           subscription_default_tax_rates=None,
                           subscription_trial_end=None):
@@ -1278,6 +1289,8 @@ class Invoice(StripeObject):
             if subscription_proration_date is not None:
                 assert type(subscription_proration_date) is int
                 assert subscription_proration_date > 1500000000
+            if subscription_proration_behavior is not None:
+                assert subscription_proration_behavior in ['create_prorations', 'none', 'always_invoice']
         except AssertionError:
             raise UserError(400, 'Bad request')
 
@@ -1397,6 +1410,8 @@ class Invoice(StripeObject):
                           description=description,
                           simulation=True)
 
+            # TODO: Apply subscription_proration_behavior.
+
             if subscription_proration_date is not None:
                 for il in invoice.lines._list:
                     il.period['start'] = subscription_proration_date
@@ -1449,6 +1464,7 @@ class Invoice(StripeObject):
                               discounts=None, subscription_items=None,
                               subscription_prorate=None,
                               subscription_proration_date=None,
+                              subscription_proration_behavior=None,
                               subscription_tax_percent=None,  # deprecated
                               subscription_default_tax_rates=None,
                               subscription_trial_end=None):
@@ -1458,6 +1474,7 @@ class Invoice(StripeObject):
             discounts=discounts, subscription_items=subscription_items,
             subscription_prorate=subscription_prorate,
             subscription_proration_date=subscription_proration_date,
+            subscription_proration_behavior=subscription_proration_behavior,
             subscription_tax_percent=subscription_tax_percent,
             subscription_default_tax_rates=subscription_default_tax_rates,
             subscription_trial_end=subscription_trial_end)
@@ -1469,7 +1486,7 @@ class Invoice(StripeObject):
         return invoice
 
     @classmethod
-    def _api_pay_invoice(cls, id):
+    def _api_pay_invoice(cls, id, charge=True):
         obj = Invoice._api_retrieve(id)
 
         if obj.status == 'paid':
@@ -1483,16 +1500,17 @@ class Invoice(StripeObject):
             obj._on_payment_success()
         else:
             cus = Customer._api_retrieve(obj.customer)
-            if cus._get_default_payment_method_or_source() is None:
+            if charge and cus._get_default_payment_method_or_source() is None:
                 raise UserError(404, 'This customer has no payment method')
             pm = cus._get_default_payment_method_or_source()
             pi = PaymentIntent(amount=obj.total,
                                currency=obj.currency,
                                customer=obj.customer,
-                               payment_method=pm.id)
+                               payment_method=pm and pm.id)
             obj.payment_intent = pi.id
             pi.invoice = obj.id
-            PaymentIntent._api_confirm(obj.payment_intent)
+            if charge:
+                PaymentIntent._api_confirm(obj.payment_intent)
 
         return obj
 
@@ -1868,9 +1886,6 @@ class PaymentIntent(StripeObject):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
-        if payment_method is not None:
-            raise UserError(500, 'Not implemented')
-
         try:
             assert type(id) is str and id.startswith('pi_')
         except AssertionError:
@@ -1878,11 +1893,18 @@ class PaymentIntent(StripeObject):
 
         obj = cls._api_retrieve(id)
 
+        if payment_method is not None:
+            payment_method = PaymentMethod._api_retrieve(payment_method)
+            cls._api_update(id, payment_method=payment_method.id)
+        elif obj.payment_method:
+            payment_method = PaymentMethod._api_retrieve(obj.payment_method)
+        else:
+            raise UserError(400, 'Bad request')
+
         if obj.status != 'requires_confirmation':
             raise UserError(400, 'Bad request')
 
         obj._authentication_failed = False
-        payment_method = PaymentMethod._api_retrieve(obj.payment_method)
         if payment_method._requires_authentication():
             obj.next_action = {
                 'type': 'use_stripe_sdk',
@@ -2603,7 +2625,6 @@ class Subscription(StripeObject):
                  trial_end=None, default_tax_rates=None,
                  backdate_start_date=None,
                  tax_percent=None,  # deprecated
-                 enable_incomplete_payments=True,  # legacy support
                  payment_behavior='allow_incomplete',
                  trial_period_days=None, billing_cycle_anchor=None,
                  proration_behavior=None, **kwargs):
@@ -2612,8 +2633,6 @@ class Subscription(StripeObject):
 
         trial_end = try_convert_to_int(trial_end)
         tax_percent = try_convert_to_float(tax_percent)
-        enable_incomplete_payments = try_convert_to_bool(
-            enable_incomplete_payments)
         trial_period_days = try_convert_to_int(trial_period_days)
         backdate_start_date = try_convert_to_int(backdate_start_date)
         billing_cycle_anchor = try_convert_to_int(billing_cycle_anchor)
@@ -2660,14 +2679,11 @@ class Subscription(StripeObject):
                 item['metadata'] = item.get('metadata')
                 if item['metadata'] is not None:
                     assert type(item['metadata']) is dict
-            assert type(enable_incomplete_payments) is bool
             assert payment_behavior in ('allow_incomplete',
+                                        'default_incomplete',
                                         'error_if_incomplete')
         except AssertionError:
             raise UserError(400, 'Bad request')
-
-        if len(items) != 1:
-            raise UserError(500, 'Not implemented')
 
         Customer._api_retrieve(customer)  # to return 404 if not existant
         for item in items:
@@ -2693,26 +2709,25 @@ class Subscription(StripeObject):
         self.canceled_at = None
         self.discount = None
         self.ended_at = None
-        self.quantity = items[0]['quantity']
         self.status = 'incomplete'
         self.trial_end = trial_end
         self.trial_start = None
         self.trial_period_days = trial_period_days
         self.latest_invoice = None
         self.start_date = backdate_start_date or int(time.time())
-        self.billing_cycle_anchor = billing_cycle_anchor
-        self._enable_incomplete_payments = (
-            enable_incomplete_payments and
-            payment_behavior != 'error_if_incomplete')
+        self.billing_cycle_anchor = billing_cycle_anchor or self.start_date
+        self._payment_behavior = payment_behavior
 
         self.items = List('/v1/subscription_items?subscription=' + self.id)
-        self.items._list.append(
+        self.items._list.extend([
             SubscriptionItem(
                 subscription=self.id,
-                price=items[0]['price'],
-                quantity=items[0]['quantity'],
-                metadata=items[0]['metadata'],
-                tax_rates=items[0]['tax_rates']))
+                price=item['price'],
+                quantity=item['quantity'],
+                metadata=item['metadata'],
+                tax_rates=item['tax_rates'])
+            for item in items
+        ])
 
         create_an_invoice = \
             self.trial_end is None and self.trial_period_days is None
@@ -2720,11 +2735,6 @@ class Subscription(StripeObject):
             self._create_invoice()
 
         schedule_webhook(Event('customer.subscription.created', self))
-
-    # TODO: Support multiple items.
-    @property
-    def price(self):
-        return self.items._list[0].price
 
     @property
     def current_period_start(self):
@@ -2753,7 +2763,9 @@ class Subscription(StripeObject):
             date=self.current_period_start)
         invoice._finalize()
         if invoice.status != 'paid':  # 0 € invoices are already 'paid'
-            Invoice._api_pay_invoice(invoice.id)
+            Invoice._api_pay_invoice(invoice.id, charge=self._payment_behavior != 'default_incomplete')
+            if self._payment_behavior == 'default_incomplete':
+                self.status = 'incomplete'
 
         if invoice.status == 'paid':
             self.status = 'active'
@@ -2773,7 +2785,7 @@ class Subscription(StripeObject):
         self.status = 'active'
 
     def _on_initial_payment_failure_now(self, invoice):
-        if not self._enable_incomplete_payments:
+        if self._payment_behavior == 'error_if_incomplete':
             super()._api_delete(self.id)
             raise UserError(402, invoice.charge.failure_message,
                             {'code': invoice.charge.failure_code})
@@ -2782,10 +2794,10 @@ class Subscription(StripeObject):
         Subscription._api_delete(self.id)
 
     def _on_initial_payment_voided(self, invoice):
-        if self._enable_incomplete_payments:
-            self.status = 'incomplete_expired'
-        else:
+        if self._payment_behavior == 'error_if_incomplete':
             self.status = 'canceled'
+        else:
+            self.status = 'incomplete_expired'
 
     def _on_recurring_payment_failure(self, invoice):
         # If source is SEPA, any payment failure at creation or upgrade cancels
