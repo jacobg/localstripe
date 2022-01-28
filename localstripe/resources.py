@@ -448,7 +448,7 @@ class Charge(StripeObject):
 
     def __init__(self, amount=None, currency=None, description=None,
                  metadata=None, customer=None, source=None, capture=True,
-                 statement_descriptor=None,
+                 statement_descriptor=None, billing_details=None,
                  **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -505,6 +505,7 @@ class Charge(StripeObject):
         self.failure_message = None
         self.captured = capture
         self.balance_transaction = None
+        self.billing_details = billing_details
 
     def _trigger_payment(self, on_success=None, on_failure_now=None,
                          on_failure_later=None):
@@ -1819,10 +1820,12 @@ class PaymentIntent(StripeObject):
                 invoice = Invoice._api_retrieve(self.invoice)
                 invoice._on_payment_failure_later()
 
+        payment_method = PaymentMethod._api_retrieve(self.payment_method)
         charge = Charge(amount=self.amount,
                         currency=self.currency,
                         customer=self.customer,
-                        source=self.payment_method)
+                        source=self.payment_method,
+                        billing_details=payment_method.billing_details)
         self.charges._list.append(charge)
         charge._trigger_payment(on_success, on_failure_now, on_failure_later)
 
