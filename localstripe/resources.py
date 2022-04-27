@@ -3226,7 +3226,7 @@ class Search:
 
         # TODO: Support more advanced query language:
         # TODO: https://stripe.com/docs/search-api#query-structure-and-terminology
-        match = re.match(r'metadata\["(\w+)"\]:"(\w+)"', query)
+        match = re.match(r'metadata\[\'(\w+)\'\]:\'(\w+)\'', query)
         if not match:
             raise UserError(400, f'Unsupported query syntax: {query}')
 
@@ -3248,7 +3248,7 @@ class Search:
             "object": "search_result",
             "has_more": False,
             "data": [i._export() for i in self.search_result_items],
-            "url": f"/v1/search/{self.resource_type}s",
+            "url": f"/v1/{self.resource_type}s/search",
         }
 
-extra_apis.append(('GET', '/v1/search/{resource_type}s', Search._run_search))
+extra_apis.append(('GET', '/v1/{resource_type}s/search', Search._run_search))
