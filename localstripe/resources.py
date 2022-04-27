@@ -1484,6 +1484,10 @@ class Invoice(StripeObject):
         del store[cls.object + ':' + invoice.id]
         invoice.id = None
 
+        # If not on existing subscription, then need to set period_start to now.
+        if not subscription:
+            invoice.period_start = int(time.time())
+
         return invoice
 
     @classmethod
@@ -1684,6 +1688,8 @@ class InvoiceLineItem(StripeObject):
         self.tax_rates = item.tax_rates or []
         self.metadata = item.metadata
         self.quantity = item.quantity
+        # TODO: Apply discount.
+        self.discount_amounts = []
 
     @property
     def tax_amounts(self):
@@ -2264,11 +2270,11 @@ class Price(StripeObject):
 
         active = try_convert_to_bool(active)
         unit_amount = try_convert_to_int(unit_amount)
+        billing_scheme = billing_scheme or 'per_unit'  # default
         try:
             assert id is None or _type(id) is str and id
             assert _type(currency) is str and currency
             assert _type(product) is str and product
-            assert _type(unit_amount) is int
             assert _type(active) is bool
             if metadata is not None:
                 assert _type(metadata) is dict
@@ -2294,9 +2300,13 @@ class Price(StripeObject):
                             type(t) is dict and 'up_to' in t and \
                             (t['up_to'] == 'inf' or
                             type(try_convert_to_int(t['up_to'])) is int)
-                        unit_amount = try_convert_to_int(t.get('unit_amount', 0))
+                        if t['up_to'] == 'inf':
+                            t['up_to'] = None
+                        else:
+                            t['up_to'] = try_convert_to_int(t.get('up_to', 0))
+                        unit_amount = t['unit_amount'] = try_convert_to_int(t.get('unit_amount', 0))
                         assert type(unit_amount) is int and unit_amount >= 0
-                        flat_amount = try_convert_to_int(t.get('flat_amount', 0))
+                        flat_amount = t['flat_amount'] = try_convert_to_int(t.get('flat_amount', 0))
                         assert type(flat_amount) is int and flat_amount >= 0
 
         except AssertionError:
@@ -3055,7 +3065,7 @@ class SubscriptionItem(StripeObject):
         if self.price.tiers_mode == 'volume':
             index = next(
                 (i for i, t in enumerate(self.price.tiers)
-                    if t['up_to'] == 'inf'
+                    if not t['up_to']
                     or self.quantity <= int(t['up_to'])))
             return self._calculate_amount_in_tier(
                 self.quantity, index)
@@ -3073,7 +3083,7 @@ class SubscriptionItem(StripeObject):
                 amount += self._calculate_amount_in_tier(
                     quantity - tier_from, i)
 
-                if t['up_to'] == 'inf':
+                if not t['up_to']:
                     quantity = 0
                 else:
                     up_to = int(t['up_to'])
