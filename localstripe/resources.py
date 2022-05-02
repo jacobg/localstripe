@@ -835,9 +835,18 @@ class Customer(StripeObject):
 
     @classmethod
     def _api_update(cls, id, **data):
-        if ('invoice_settings' in data and
-                data['invoice_settings'].get('default_payment_method') == ''):
-            data['invoice_settings']['default_payment_method'] = None
+        if ('invoice_settings' in data):
+            default_payment_method = data['invoice_settings'].get('default_payment_method')
+            if default_payment_method:
+                payment_method = PaymentMethod._api_retrieve(default_payment_method)
+                if not payment_method or payment_method.customer != id:
+                    raise UserError(
+                        400,
+                        f'The customer does not have a payment method with the ID {default_payment_method}.'
+                        f' The payment method must be attached to the customer.'
+                    )
+            elif default_payment_method == '':
+                data['invoice_settings']['default_payment_method'] = None
         if 'balance' in data:
             data['balance'] = try_convert_to_int(data['balance'])
         obj = super()._api_update(id, **data)
@@ -2523,7 +2532,7 @@ class SetupIntent(StripeObject):
     _id_prefix = 'seti_'
 
     def __init__(self, customer=None, usage=None, payment_method_types=None,
-                 metadata=None, **kwargs):
+                 confirm=False, payment_method=None, metadata=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
@@ -2549,13 +2558,18 @@ class SetupIntent(StripeObject):
         self.metadata = metadata or {}
         self.client_secret = self.id + '_secret_' + random_id(16)
         self.payment_method_types = payment_method_types
-        self.payment_method = None
         self.status = 'requires_payment_method'
         self.next_action = None
 
+        if confirm:
+            self.payment_method = None
+            SetupIntent._api_confirm(self.id, payment_method=payment_method)
+        else:
+            self.payment_method = payment_method
+
     @classmethod
     def _api_confirm(cls, id, use_stripe_sdk=None, client_secret=None,
-                     payment_method_data=None, **kwargs):
+                     payment_method=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
@@ -2563,8 +2577,6 @@ class SetupIntent(StripeObject):
             assert type(id) is str and id.startswith('seti_')
             if client_secret is not None:
                 assert type(client_secret) is str
-            if payment_method_data is not None:
-                assert type(payment_method_data) is dict
         except AssertionError:
             raise UserError(400, 'Bad request')
 
@@ -2573,12 +2585,15 @@ class SetupIntent(StripeObject):
         if client_secret and client_secret != obj.client_secret:
             raise UserError(401, 'Unauthorized')
 
-        if payment_method_data:
+        if payment_method:
             if obj.payment_method is not None:
                 raise UserError(400, 'Bad request')
 
-            pm = PaymentMethod(**payment_method_data)
+            pm = PaymentMethod._api_retrieve(payment_method)
             obj.payment_method = pm.id
+
+            if obj.customer:
+                PaymentMethod._api_attach(pm.id, obj.customer)
 
             if pm._attaching_is_declined():
                 obj.status = 'canceled'
