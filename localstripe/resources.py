@@ -499,6 +499,7 @@ class Charge(StripeObject):
         self.status = 'pending'
         self.receipt_email = None
         self.receipt_number = None
+        self.receipt_url = None
         self.payment_method = source.id
         self.statement_descriptor = statement_descriptor
         self.failure_code = None
@@ -1086,7 +1087,7 @@ class Invoice(StripeObject):
         except AssertionError:
             raise UserError(400, 'Bad request')
 
-        Customer._api_retrieve(customer)  # to return 404 if not existant
+        customer_obj = Customer._api_retrieve(customer)  # to return 404 if not existant
 
         if subscription is not None:
             subscription_obj = Subscription._api_retrieve(subscription)
@@ -1099,11 +1100,13 @@ class Invoice(StripeObject):
         super().__init__()
 
         self.customer = customer
+        self.customer_name = customer_obj.name
         self.subscription = subscription
         self.tax_percent = tax_percent
         self.default_tax_rates = default_tax_rates
         self.date = date
         self.metadata = metadata or {}
+        self.number = None
         self.payment_intent = None
         self.application_fee = None
         self.attempt_count = 1
@@ -1113,6 +1116,7 @@ class Invoice(StripeObject):
         self.discounts = None
         self.ending_balance = 0
         self.receipt_number = None
+        self.invoice_pdf = None
         self.starting_balance = 0
         self.statement_descriptor = None
         self.webhooks_delivered_at = self.date
@@ -1524,7 +1528,9 @@ class Invoice(StripeObject):
             obj.payment_intent = pi.id
             pi.invoice = obj.id
             if charge:
-                PaymentIntent._api_confirm(obj.payment_intent)
+                payment_intent = PaymentIntent._api_confirm(obj.payment_intent)
+                charge = payment_intent.charges._list[0]
+                charge.invoice = obj.id
 
         return obj
 
