@@ -1111,6 +1111,8 @@ class Invoice(StripeObject):
         self.application_fee = None
         self.attempt_count = 1
         self.attempted = True
+        self.paid = False
+        self.paid_out_of_band = False
         self.billing_reason = None
         self.description = description
         self.discounts = None
@@ -1232,6 +1234,7 @@ class Invoice(StripeObject):
         self.status_transitions['finalized_at'] = int(time.time())
 
     def _on_payment_success(self):
+        self.paid = True
         assert self.status == 'paid'
         self.status_transitions['paid_at'] = int(time.time())
         schedule_webhook(Event('invoice.payment_succeeded', self))
@@ -1503,6 +1506,33 @@ class Invoice(StripeObject):
 
         return invoice
 
+    @classmethod
+    def _api_pay(cls, id, forgive=False, off_session=True, paid_out_of_band=False, payment_method=None, source=None, **kwargs):
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        obj = Invoice._api_retrieve(id)
+
+        if obj.status == 'paid':
+            raise UserError(400, 'Invoice is already paid')
+        elif obj.status not in ('draft', 'open'):
+            raise UserError(400, 'Bad request')
+
+        # TODO: For now, we are just handling paid_out_of_band.
+        # TODO: But we should handle all possible parameters.
+        assert not forgive
+        assert off_session
+        assert paid_out_of_band
+        assert not payment_method
+        assert not source
+
+        obj._draft = False
+        obj.paid_out_of_band = True
+        obj._on_payment_success()
+
+        return obj
+
+    # TODO: pay_invoice appears to have been deprecated and removed from the API.
     @classmethod
     def _api_pay_invoice(cls, id, charge=True):
         obj = Invoice._api_retrieve(id)
