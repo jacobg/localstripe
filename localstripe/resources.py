@@ -2375,7 +2375,7 @@ class Price(StripeObject):
         schedule_webhook(Event('price.created', self))
 
     @classmethod
-    def _api_list_all(cls, url, product=None, limit=None, starting_after=None):
+    def _api_list_all(cls, url, active=None, product=None, limit=None, starting_after=None):
         try:
             if product is not None:
                 assert type(product) is str and product.startswith(Product._id_prefix)
@@ -2387,6 +2387,9 @@ class Price(StripeObject):
         if product is not None:
             Product._api_retrieve(product)  # to return 404 if not existant
             li._list = [i for i in li._list if i.product == product]
+        if active is not None:
+            active = try_convert_to_bool(active)
+            li._list = [i for i in li._list if i.active == active]
         return li
 
 
@@ -2438,6 +2441,13 @@ class Product(StripeObject):
 
         schedule_webhook(Event('product.created', self))
 
+    @classmethod
+    def _api_list_all(cls, url, active=None, **kwargs):
+        li = super(Product, cls)._api_list_all(url, **kwargs)
+        if active is not None:
+            active = try_convert_to_bool(active)
+            li._list = [i for i in li._list if i.active == active]
+        return li
 
 class Refund(StripeObject):
     object = 'refund'
