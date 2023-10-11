@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import pickle
 import random
@@ -3105,7 +3105,7 @@ class SubscriptionItem(StripeObject):
         else:
             start_date = int(time.time())
 
-        end_date = datetime.fromtimestamp(start_date)
+        end_date = datetime.utcfromtimestamp(start_date).replace(tzinfo=timezone.utc)
         if self.price.recurring:
             if self.price.recurring['interval'] == 'day':
                 end_date += timedelta(days=1)
