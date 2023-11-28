@@ -2790,6 +2790,7 @@ class Subscription(StripeObject):
         self.latest_invoice = None
         self.start_date = backdate_start_date or int(time.time())
         self.billing_cycle_anchor = billing_cycle_anchor or self.start_date
+        self.schedule = None
         self._payment_behavior = payment_behavior
 
         self.items = List('/v1/subscription_items?subscription=' + self.id)
