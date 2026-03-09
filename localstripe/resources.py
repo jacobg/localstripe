@@ -16,6 +16,7 @@
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+import functools
 import hashlib
 import pickle
 import random
@@ -3279,7 +3280,11 @@ class Search:
 
     # Search API: https://stripe.com/docs/search-api
     @classmethod
-    def _run_search(cls, resource_type, query=None, **kwargs):
+    def _run_search(cls, resource_type=None, query=None, resource_plural=None,
+                    **kwargs):
+        if resource_plural:
+            resource_type = resource_plural[:-1]
+
         # https://stripe.com/docs/search-api/api-details#supported-resources-and-fields
         SUPPORTED_RESOURCE_TYPES = [Charge, PaymentIntent, Customer]
         resource_map = {r.object: r for r in SUPPORTED_RESOURCE_TYPES}
@@ -3323,4 +3328,8 @@ class Search:
             "url": f"/v1/{self.resource_type}s/search",
         }
 
-extra_apis.append(('GET', '/v1/{resource_type}s/search', Search._run_search))
+for resource in (Charge, PaymentIntent, Customer):
+    resource_plural = resource.object + 's'
+    extra_apis.append(
+        ('GET', f'/v1/{resource_plural}/search',
+         functools.partial(Search._run_search, resource_plural=resource_plural)))
